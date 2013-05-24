@@ -27,6 +27,9 @@
 #include "thread.h"
 #include "tt.h"
 #include "ucioption.h"
+#if PA_GTB
+#include "phash.h"
+#endif
 
 using std::string;
 
@@ -40,7 +43,9 @@ void on_eval(const Option&) { Eval::init(); }
 void on_threads(const Option&) { Threads.read_uci_options(); }
 void on_hash_size(const Option& o) { TT.set_size(o); }
 void on_clear_hash(const Option&) { TT.clear(); }
-
+#if PA_GTB
+  void on_clear_phash(const Option&) { wantsclear_phash(); }
+#endif
 
 /// Our case insensitive less() function as required by UCI protocol
 bool ci_less(char c1, char c2) { return tolower(c1) < tolower(c2); }
@@ -89,7 +94,13 @@ void init(OptionsMap& o) {
   o["Slow Mover"]                  = Option(100, 10, 1000);
   o["UCI_Chess960"]                = Option(false);
   o["UCI_AnalyseMode"]             = Option(false, on_eval);
-#if PA_GTB && defined(USE_EGTB)
+#if PA_GTB
+  o["Use Persistent Hash"]         = Option(true);
+  o["Persistent Hash File"]        = Option("stockfish.hsh");
+  o["Clear Persistent Hash"]       = Option(on_clear_phash);
+  o["Persistent Hash Depth"]       = Option(15, 10, 99);
+  // o["Persistent Hash Size"]        = Option(32, 4, 1024); // doesn't really work
+#ifdef USE_EGTB
   o["UseGaviotaTb"]                = Option(true);
   o["ProbeOnlyAtRoot"]             = Option(false);
   o["GaviotaTbPath"]               = Option("c:/gtb");
@@ -103,6 +114,7 @@ void init(OptionsMap& o) {
   schemes[3] = "Zlib-9 (cp3)";
   schemes[4] = "LZMA-5-4k (cp4)";
   o["GaviotaTbCompression"]        = Option(schemes[4], schemes);
+#endif
 #endif
 }
 

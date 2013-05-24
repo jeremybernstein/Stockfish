@@ -29,6 +29,7 @@
 #include "ucioption.h"
 #if PA_GTB
 #include "bitcount.h"
+#include "phash.h"
 #ifdef USE_EGTB
 #include "egtb.h"
 #endif
@@ -45,6 +46,9 @@ int main(int argc, char* argv[]) {
   std::cout << engine_info() << std::endl;
 
   UCI::init(Options);
+#if PA_GTB
+  init_phash();
+#endif
   Bitboards::init();
   Zobrist::init();
   Bitbases::init_kpk();
@@ -63,8 +67,11 @@ int main(int argc, char* argv[]) {
 
   UCI::loop(args);
 
-#if PA_GTB && defined(USE_EGTB)
+#if PA_GTB
+  quit_phash();
+#ifdef USE_EGTB
   close_egtb();
+#endif
 #endif
   Threads.exit();
 }

@@ -21,6 +21,9 @@
 #include <iostream>
 
 #include "bitboard.h"
+#if PA_GTB
+#include "phash.h"
+#endif
 #include "tt.h"
 
 TranspositionTable TT; // Our global transposition table
@@ -74,6 +77,13 @@ void TranspositionTable::clear() {
 /// a previous search, or if the depth of t1 is bigger than the depth of t2.
 
 void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m, Value statV, Value kingD) {
+#if PA_GTB
+  TranspositionTable::store(key, v, t, d, m, statV, kingD, true);
+}
+
+
+void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m, Value statV, Value kingD, bool interested) {
+#endif
 
   int c1, c2, c3;
   TTEntry *tte, *replace;
@@ -88,8 +98,12 @@ void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m,
           // Preserve any existing ttMove
           if (m == MOVE_NONE)
               m = tte->move();
-
+        
+#if PA_GTB
+          tte->save(key, key32, v, t, d, m, generation, statV, kingD, interested);
+#else
           tte->save(key32, v, t, d, m, generation, statV, kingD);
+#endif
           return;
       }
 
@@ -101,7 +115,11 @@ void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m,
       if (c1 + c2 + c3 > 0)
           replace = tte;
   }
+#if PA_GTB
+  replace->save(key, key32, v, t, d, m, generation, statV, kingD, interested);
+#else
   replace->save(key32, v, t, d, m, generation, statV, kingD);
+#endif
 }
 
 
@@ -119,4 +137,59 @@ TTEntry* TranspositionTable::probe(const Key key) const {
           return tte;
 
   return NULL;
+}
+
+
+//#define PHASH_TIMER
+
+/// TranspositionTable::to_phash()
+
+void TranspositionTable::to_phash() {
+  
+#ifdef PHASH_TIMER
+  struct timeval tv1, tv2;
+  unsigned entries = 0;
+  unsigned count = 0;
+  
+  gettimeofday(&tv1, NULL);
+#endif
+  starttransaction_phash(PHASH_WRITE);
+  for (unsigned i = 0; i < (hashMask + ClusterSize); i++) {
+    TTEntry *tte = table + i;
+    Key key;
+    if ((key = tte->interesting())) {
+      store_phash(key, tte->value(), tte->type(), tte->depth(), tte->move(), tte->eval_value(), tte->eval_margin());
+#ifdef PHASH_TIMER
+      count++;
+#endif
+    }
+#ifdef PHASH_TIMER
+    entries++;
+#endif
+  }
+  endtransaction_phash();
+#ifdef PHASH_TIMER
+  gettimeofday(&tv2, NULL);
+  sync_cout << "\nTranspositionTable::iterate " << " entries in " << ((tv2.tv_sec * 1000.) + (tv2.tv_usec / 1000.) - (tv1.tv_sec * 1000.) + (tv1.tv_usec / 1000.)) << " milliseconds with " << count << " interesting positions.\n" << sync_endl;
+#endif
+}
+
+
+/// TranspositionTable::from_phash()
+
+void TranspositionTable::from_phash() {
+  
+#ifdef PHASH_TIMER
+  struct timeval tv1, tv2;
+  unsigned count = 0;
+  
+  gettimeofday(&tv1, NULL);
+#endif
+  starttransaction_phash(PHASH_READ);
+  to_tt_phash();
+  endtransaction_phash();
+#ifdef PHASH_TIMER
+  gettimeofday(&tv2, NULL);
+  sync_cout << "\nTranspositionTable::iterate " << " entries in " << ((tv2.tv_sec * 1000.) + (tv2.tv_usec / 1000.) - (tv1.tv_sec * 1000.) + (tv1.tv_usec / 1000.)) << " milliseconds with " << count << " interesting positions.\n" << sync_endl;
+#endif
 }

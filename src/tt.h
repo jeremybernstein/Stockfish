@@ -22,6 +22,9 @@
 
 #include "misc.h"
 #include "types.h"
+#if PA_GTB
+#include "ucioption.h"
+#endif
 
 /// The TTEntry is the class of transposition table entries
 ///
@@ -44,7 +47,11 @@
 class TTEntry {
 
 public:
+#if PA_GTB
+  void save(Key key, uint32_t k, Value v, Bound b, Depth d, Move m, int g, Value ev, Value em, bool interested) {
+#else
   void save(uint32_t k, Value v, Bound b, Depth d, Move m, int g, Value ev, Value em) {
+#endif
 
     key32        = (uint32_t)k;
     move16       = (uint16_t)m;
@@ -54,6 +61,14 @@ public:
     depth16      = (int16_t)d;
     evalValue    = (int16_t)ev;
     evalMargin   = (int16_t)em;
+#if PA_GTB
+    interesting64 = 0;
+    if (interested && b == BOUND_EXACT && m != MOVE_NONE && Options["Use Persistent Hash"]) {
+      if (d >= Options["Persistent Hash Depth"]) {
+        interesting64 = key;
+      }
+    }
+#endif
   }
   void set_generation(int g) { generation8 = (uint8_t)g; }
 
@@ -65,8 +80,14 @@ public:
   int generation() const    { return (int)generation8; }
   Value eval_value() const  { return (Value)evalValue; }
   Value eval_margin() const { return (Value)evalMargin; }
-
+#if PA_GTB
+  Key interesting()        { Key rv = interesting64; interesting64 = 0; return rv; }
+#endif
+  
 private:
+#if PA_GTB
+  Key interesting64;
+#endif
   uint32_t key32;
   uint16_t move16;
   uint8_t bound, generation8;
@@ -94,6 +115,11 @@ public:
   void set_size(size_t mbSize);
   void clear();
   void store(const Key key, Value v, Bound type, Depth d, Move m, Value statV, Value kingD);
+#if PA_GTB
+  void store(const Key key, Value v, Bound type, Depth d, Move m, Value statV, Value kingD, bool interested);
+#endif
+  void to_phash();
+  void from_phash();
 
 private:
   uint32_t hashMask;
