@@ -95,10 +95,10 @@ void init(OptionsMap& o) {
   o["UCI_Chess960"]                = Option(false);
   o["UCI_AnalyseMode"]             = Option(false, on_eval);
 #if PA_GTB
-  o["Use Persistent Hash"]         = Option(true);
+  o["Use Persistent Hash"]         = Option(false);
   o["Persistent Hash File"]        = Option("stockfish.hsh");
   o["Clear Persistent Hash"]       = Option(on_clear_phash);
-  o["Persistent Hash Depth"]       = Option(15, 10, 99);
+  o["Persistent Hash Depth"]       = Option(18, 10, 99);
   // o["Persistent Hash Size"]        = Option(32, 4, 1024); // doesn't really work
 #ifdef USE_EGTB
   o["UseGaviotaTb"]                = Option(true);
