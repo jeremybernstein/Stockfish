@@ -81,7 +81,7 @@ public:
   Value eval_value() const  { return (Value)evalValue; }
   Value eval_margin() const { return (Value)evalMargin; }
 #if PA_GTB
-  Key interesting()        { Key rv = interesting64; interesting64 = 0; return rv; }
+  Key interesting()         { Key rv = interesting64; interesting64 = 0; return rv; }
 #endif
   
 private:
