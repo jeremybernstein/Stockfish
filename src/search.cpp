@@ -686,7 +686,7 @@ namespace {
         val = egtb_probe(pos, hard, exact, &probed);
         if (probed) {
           value = value_from_tt(val, ss->ply);
-          TT.store(pos.key(), val, BOUND_EXACT, depth, MOVE_NONE, val, VALUE_ZERO);
+          TT.store(pos.key(), val, BOUND_EXACT, depth, MOVE_NONE, val, VALUE_ZERO, false);
           return value;
         }
       }
