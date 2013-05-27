@@ -151,14 +151,15 @@ void store_phash(const Key key, Value v, Bound t, Depth d, Move m, Value statV, 
     if (d >= oldDepth) {
       t_phash_data data;
       int rv = 0;
-      
+
+      rv = rv; // compiler warning
       data.v = v;
       data.t = t;
       data.d = d;
       data.m = m;
       data.statV = statV;
       data.kingD = kingD;
-      
+
       rv = dpput(PersHashFile, (const char *)&key, (int)sizeof(Key), (const char *)&data, (int)sizeof(t_phash_data), DP_DOVER);
 #ifdef PHASH_DEBUG
       if (rv) {
@@ -288,6 +289,7 @@ void clear_phash()
 #endif
     int rv;
     
+    rv = rv; // compiler warning
     if (dpiterinit(PersHashFile)) {
       char *key;
       

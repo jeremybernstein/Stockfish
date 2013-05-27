@@ -48,7 +48,7 @@ class TTEntry {
 
 public:
 #if PA_GTB
-  void save(Key key, uint32_t k, Value v, Bound b, Depth d, Move m, int g, Value ev, Value em, bool interested) {
+  void save(Key k64, uint32_t k, Value v, Bound b, Depth d, Move m, int g, Value ev, Value em, bool interested) {
 #else
   void save(uint32_t k, Value v, Bound b, Depth d, Move m, int g, Value ev, Value em) {
 #endif
@@ -65,7 +65,7 @@ public:
     interesting64 = 0;
     if (interested && b == BOUND_EXACT && m != MOVE_NONE && Options["Use Persistent Hash"]) {
       if (d >= Options["Persistent Hash Depth"]) {
-        interesting64 = key;
+        interesting64 = k64;
       }
     }
 #endif
