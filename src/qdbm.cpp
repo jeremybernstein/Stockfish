@@ -23,9 +23,13 @@
 #if PA_GTB
 #include <cassert>
 #include <string>
+#include <iostream>
+#include <sstream>
 
 #include "phash.h"
 #include "qdbm/depot.h"
+#include "misc.h"
+#include "thread.h"
 #include "tt.h"
 
 //PHashList PHL; // Our global list of interesting positions
@@ -39,6 +43,7 @@ namespace
   /// Variables
   DEPOT *PersHashFile = NULL;
   bool PersHashWantsClear = false;
+  bool PersHashWantsPrune = false;
 }
 
 typedef struct _phash_data
@@ -59,9 +64,13 @@ int count_phash();
 DEPOT *open_phash(PHASH_MODE mode);
 void close_phash(DEPOT *depot);
 void clear_phash();
-void prune_phash(int numrecs);
+void doclear_phash();
+void prune_phash();
+void doprune_phash();
 void optimize_phash();
 int getsize_phash();
+int prune_below_phash(int depth);
+
 
 //#define PHASH_DEBUG
 
@@ -117,9 +126,38 @@ void quit_phash()
   endtransaction_phash();
 }
 
+void clear_phash()
+{
+  starttransaction_phash(PHASH_WRITE);
+  doclear_phash();
+  endtransaction_phash();
+}
+
 void wantsclear_phash()
 {
-  PersHashWantsClear = true;
+  MainThread *t = Threads.main_thread();
+  if (t->thinking) {
+    PersHashWantsClear = true;
+  } else {
+    clear_phash();
+  }
+}
+
+void prune_phash()
+{
+  starttransaction_phash(PHASH_WRITE);
+  doprune_phash();
+  endtransaction_phash();
+}
+
+void wantsprune_phash()
+{
+  MainThread *t = Threads.main_thread();
+  if (t->thinking) {
+    PersHashWantsPrune = true;
+  } else {
+    prune_phash();
+  }
 }
 
 DEPOT *open_phash(PHASH_MODE mode)
@@ -177,20 +215,12 @@ void starttransaction_phash(PHASH_MODE mode)
   if (PersHashFile) return;
   
   if (PersHashWantsClear) {
-    PersHashFile = open_phash(PHASH_WRITE);
-    clear_phash();
-    endtransaction_phash();
     PersHashWantsClear = false;
-  } /* else {
-    int PersHashSize = Options["Persistent Hash Size"] * 1024 * 1024;
-    int RealHashSize;
-    PersHashFile = open_phash(PHASH_WRITE);
-    RealHashSize = getsize_phash();
-    if (RealHashSize > PersHashSize) {
-      prune_phash((RealHashSize - PersHashSize) / sizeof(t_phash_data));
-    }
-    endtransaction_phash();
-  } */
+    clear_phash();
+  } else if (PersHashWantsPrune) {
+    PersHashWantsPrune = false;
+    prune_phash();
+  }
   PersHashFile = open_phash(mode);
 }
 
@@ -199,6 +229,105 @@ void endtransaction_phash()
   if (PersHashFile) {
     close_phash(PersHashFile);
     PersHashFile = NULL;
+  }
+}
+
+int prune_below_phash(int depth)
+{
+  int count = 0;
+
+  if (PersHashFile) {
+    if (dpiterinit(PersHashFile)) {
+      char *key;
+      while ((key = dpiternext(PersHashFile, NULL))) {
+        t_phash_data data;
+        int datasize = 0;
+
+        datasize = dpgetwb(PersHashFile, (const char *)key, (int)sizeof(Key), 0, (int)sizeof(t_phash_data), (char *)&data);
+        if (datasize == sizeof(t_phash_data)) {
+          if (data.d <= depth) {
+            dpout(PersHashFile, (const char *)key, sizeof(Key));
+            count++;
+          }
+        }
+        free(key);
+      }
+    }
+  }
+  return count;
+}
+
+
+// the basic algorithm is: check the file size, if it's higher than the target size
+// delete all entries at the minimum depth and optimize
+// if still too big, repeat with the next highest depth and so on until we're below the target size
+void doprune_phash()
+{
+  if (PersHashFile) {
+    int desiredFileSize = Options["Persistent Hash Size"] * (1024 * 1024);
+    int hashDepth = Options["Persistent Hash Depth"];
+    int pruneDepth = hashDepth;
+    int currentFileSize;
+    int totalPruned = 0;
+    std::ostringstream ss;
+    int origFileSize = dpfsiz(PersHashFile);
+    
+    optimize_phash();
+    currentFileSize = dpfsiz(PersHashFile);
+    if (currentFileSize < desiredFileSize) {
+      sync_cout << "info string Persistent Hash optimized [no pruning necessary]. Previous size: " << origFileSize << " bytes; new size: " << currentFileSize << " bytes." << sync_endl;
+      return;
+    }
+    while (pruneDepth < 100) {
+      int pruned = prune_below_phash(pruneDepth);
+      if (pruned) {
+        optimize_phash();
+        currentFileSize = dpfsiz(PersHashFile);
+        totalPruned += pruned;
+      } else {
+        //sync_cout << "info string Persistent Hash pruned at depth " << pruneDepth << " [0 records]." << sync_endl;
+      }
+      if (currentFileSize < desiredFileSize) {
+        if (hashDepth == pruneDepth) {
+          ss << "info string Persistent Hash pruned at depth " << hashDepth;
+        } else {
+          ss << "info string Persistent Hash pruned between depths " << hashDepth << " and " << pruneDepth;
+        }
+        ss << " [" << totalPruned << " record(s)]. Previous size: " << origFileSize << " bytes; new size: " << currentFileSize << " bytes.";
+        sync_cout << ss.str() << sync_endl;
+        return;
+      }
+      pruneDepth++;
+    }
+  }
+}
+
+void doclear_phash()
+{
+  if (PersHashFile) {
+#ifdef PHASH_DEBUG
+    int count = 0;
+#endif
+    int rv;
+    
+    if (dpiterinit(PersHashFile)) {
+      char *key;
+      
+      while ((key = dpiternext(PersHashFile, NULL))) {
+        rv = dpout(PersHashFile, (const char *)key, sizeof(Key));
+#ifdef PHASH_DEBUG
+        if (rv) {
+          count++;
+          printf("dpout: deleted %0llx\n", *((Key *)key));
+        }
+#endif
+        free(key);
+      }
+      optimize_phash();
+    }
+#ifdef PHASH_DEBUG
+    printf("purged %d records\n", count);
+#endif
   }
 }
 
@@ -215,6 +344,7 @@ int probe_phash(const Key key, Depth *d)
 {
   int rv = 0;
   
+  *d = DEPTH_ZERO;
   if (PersHashFile) {
     t_phash_data data;
     int datasize = 0;
@@ -263,51 +393,6 @@ void optimize_phash()
 {
   if (PersHashFile) {
     dpoptimize(PersHashFile, 0);
-  }
-}
-
-void prune_phash(int numrecs) // totally arbitrary what gets chopped
-{
-  if (PersHashFile) {
-    if (dpiterinit(PersHashFile)) {
-      char *key;
-      
-      while ((key = dpiternext(PersHashFile, NULL)) && numrecs--) {
-        dpout(PersHashFile, (const char *)key, sizeof(Key));
-        free(key);
-      }
-      optimize_phash();
-    }
-  }
-}
-
-void clear_phash()
-{
-  if (PersHashFile) {
-#ifdef PHASH_DEBUG
-    int count = 0;
-#endif
-    int rv;
-    
-    rv = rv; // compiler warning
-    if (dpiterinit(PersHashFile)) {
-      char *key;
-      
-      while ((key = dpiternext(PersHashFile, NULL))) {
-        rv = dpout(PersHashFile, (const char *)key, sizeof(Key));
-#ifdef PHASH_DEBUG
-        if (rv) {
-          count++;
-          printf("dpout: deleted %0llx\n", *((Key *)key));
-        }
-#endif
-        free(key);
-      }
-      optimize_phash();
-    }
-#ifdef PHASH_DEBUG
-    printf("purged %d records\n", count);
-#endif
   }
 }
 
