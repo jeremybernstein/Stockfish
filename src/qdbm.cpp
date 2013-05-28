@@ -23,8 +23,6 @@
 #if PA_GTB
 #include <cassert>
 #include <string>
-#include <iostream>
-#include <sstream>
 
 #include "phash.h"
 #include "qdbm/depot.h"
