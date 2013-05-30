@@ -62,10 +62,10 @@ public:
     evalValue    = (int16_t)ev;
     evalMargin   = (int16_t)em;
 #if PA_GTB
-    interesting64 = 0;
+    keylow32 = 0;
     if (interested && b == BOUND_EXACT && m != MOVE_NONE && Options["Use Persistent Hash"]) {
       if (d >= Options["Persistent Hash Depth"]) {
-        interesting64 = k64;
+        keylow32 = (uint32_t)(k64 & 0xFFFF);
       }
     }
 #endif
@@ -81,12 +81,12 @@ public:
   Value eval_value() const  { return (Value)evalValue; }
   Value eval_margin() const { return (Value)evalMargin; }
 #if PA_GTB
-  Key interesting()         { Key rv = interesting64; interesting64 = 0; return rv; }
+  Key interesting()         { Key rv = keylow32 ? (((Key)key32 << 32) | keylow32) : 0; keylow32 = 0; return rv; }
 #endif
-  
+
 private:
 #if PA_GTB
-  Key interesting64;
+  uint32_t keylow32;
 #endif
   uint32_t key32;
   uint16_t move16;
