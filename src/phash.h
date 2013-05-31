@@ -14,6 +14,15 @@
 
 //#define PHASH_DEBUG
 
+#ifdef UNUSED
+#elif defined(__GNUC__)
+#define UNUSED(x) UNUSED_ ## x __attribute__((unused))
+#elif defined(__LCLINT__)
+#define UNUSED(x) /*@unused@*/ x
+#else
+#define UNUSED(x) x
+#endif
+
 typedef enum { PHASH_READ, PHASH_WRITE } PHASH_MODE;
 
 void init_phash();

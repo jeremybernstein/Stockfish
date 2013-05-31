@@ -23,6 +23,7 @@
 #include "misc.h"
 #include "types.h"
 #if PA_GTB
+#include "phash.h"
 #include "ucioption.h"
 #endif
 
@@ -88,7 +89,7 @@ private:
 class PHEntry {
 
 public:
-  void save(Key k64, uint32_t k, Value v, Bound b, Depth d, Move m, int g, Value ev, Value em, bool interested) {
+  void save(Key k64, uint32_t UNUSED(k), Value UNUSED(v), Bound b, Depth d, Move m, int g, Value UNUSED(ev), Value UNUSED(em), bool UNUSED(nterested)) {
 
     key64        = (Key)k64;
     move16       = (uint16_t)m;
