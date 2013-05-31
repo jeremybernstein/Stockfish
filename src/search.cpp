@@ -374,7 +374,7 @@ namespace {
 
 #if PA_GTB
     if (UsePersistentHash) {
-      TT.from_phash();
+      PH.from_phash();
     }
 #endif
 
@@ -540,7 +540,7 @@ namespace {
         }
 #if PA_GTB
       if (UsePersistentHash) {
-        TT.to_phash();
+        PH.to_phash();
       }
 #endif
       

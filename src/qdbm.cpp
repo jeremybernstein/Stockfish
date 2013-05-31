@@ -70,8 +70,6 @@ int getsize_phash();
 int prune_below_phash(int depth);
 
 
-//#define PHASH_DEBUG
-
 // init_phash() initializes or reinitializes persistent hash if necessary.
 
 void init_phash()

@@ -26,25 +26,32 @@
 #endif
 #include "tt.h"
 
-TranspositionTable TT; // Our global transposition table
+TranspositionTable<TTEntry> TT; // Our global transposition table
+TranspositionTable<PHEntry> PH;
 
+
+void TTEntry::phash_store(Key k64, Value v, Bound b, Depth d, Move m, Value ev, Value em) {
+  
+  PH.store(k64, v, b, d, m, ev, em, true);
+}
 
 /// TranspositionTable::set_size() sets the size of the transposition table,
 /// measured in megabytes. Transposition table consists of a power of 2 number
 /// of clusters and each cluster consists of ClusterSize number of TTEntry.
 
-void TranspositionTable::set_size(size_t mbSize) {
+template<class T>
+void TranspositionTable<T>::set_size(size_t mbSize) {
 
-  assert(msb((mbSize << 20) / sizeof(TTEntry)) < 32);
+  assert(msb((mbSize << 20) / sizeof(T)) < 32);
 
-  uint32_t size = ClusterSize << msb((mbSize << 20) / sizeof(TTEntry[ClusterSize]));
+  uint32_t size = ClusterSize << msb((mbSize << 20) / sizeof(T[ClusterSize]));
 
   if (hashMask == size - ClusterSize)
       return;
 
   hashMask = size - ClusterSize;
   free(mem);
-  mem = malloc(size * sizeof(TTEntry) + CACHE_LINE_SIZE - 1);
+  mem = malloc(size * sizeof(T) + CACHE_LINE_SIZE - 1);
 
   if (!mem)
   {
@@ -53,7 +60,7 @@ void TranspositionTable::set_size(size_t mbSize) {
       exit(EXIT_FAILURE);
   }
 
-  table = (TTEntry*)((uintptr_t(mem) + CACHE_LINE_SIZE - 1) & ~(CACHE_LINE_SIZE - 1));
+  table = (T*)((uintptr_t(mem) + CACHE_LINE_SIZE - 1) & ~(CACHE_LINE_SIZE - 1));
   clear(); // Operator new is not guaranteed to initialize memory to zero
 }
 
@@ -62,9 +69,10 @@ void TranspositionTable::set_size(size_t mbSize) {
 /// with zeroes. It is called whenever the table is resized, or when the
 /// user asks the program to clear the table (from the UCI interface).
 
-void TranspositionTable::clear() {
+template<class T>
+void TranspositionTable<T>::clear() {
 
-  memset(table, 0, (hashMask + ClusterSize) * sizeof(TTEntry));
+  memset(table, 0, (hashMask + ClusterSize) * sizeof(T));
 }
 
 
@@ -76,17 +84,18 @@ void TranspositionTable::clear() {
 /// more valuable than a TTEntry t2 if t1 is from the current search and t2 is from
 /// a previous search, or if the depth of t1 is bigger than the depth of t2.
 
-void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m, Value statV, Value kingD) {
-#if PA_GTB
-  TranspositionTable::store(key, v, t, d, m, statV, kingD, true);
+template<class T>
+void TranspositionTable<T>::store(const Key key, Value v, Bound t, Depth d, Move m, Value statV, Value kingD) {
+
+  TranspositionTable<T>::store(key, v, t, d, m, statV, kingD, true);
 }
 
 
-void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m, Value statV, Value kingD, bool interested) {
-#endif
+template<class T>
+void TranspositionTable<T>::store(const Key key, Value v, Bound t, Depth d, Move m, Value statV, Value kingD, bool interested) {
 
   int c1, c2, c3;
-  TTEntry *tte, *replace;
+  T *tte, *replace;
   uint32_t key32 = key >> 32; // Use the high 32 bits as key inside the cluster
 
   tte = replace = first_entry(key);
@@ -98,12 +107,8 @@ void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m,
           // Preserve any existing ttMove
           if (m == MOVE_NONE)
               m = tte->move();
-        
-#if PA_GTB
+
           tte->save(key, key32, v, t, d, m, generation, statV, kingD, interested);
-#else
-          tte->save(key32, v, t, d, m, generation, statV, kingD);
-#endif
           return;
       }
 
@@ -115,11 +120,7 @@ void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m,
       if (c1 + c2 + c3 > 0)
           replace = tte;
   }
-#if PA_GTB
   replace->save(key, key32, v, t, d, m, generation, statV, kingD, interested);
-#else
-  replace->save(key32, v, t, d, m, generation, statV, kingD);
-#endif
 }
 
 
@@ -127,9 +128,10 @@ void TranspositionTable::store(const Key key, Value v, Bound t, Depth d, Move m,
 /// transposition table. Returns a pointer to the TTEntry or NULL if
 /// position is not found.
 
-TTEntry* TranspositionTable::probe(const Key key) const {
+template<class T>
+T* TranspositionTable<T>::probe(const Key key) const {
 
-  TTEntry* tte = first_entry(key);
+  T* tte = first_entry(key);
   uint32_t key32 = key >> 32;
 
   for (unsigned i = 0; i < ClusterSize; i++, tte++)
@@ -140,56 +142,70 @@ TTEntry* TranspositionTable::probe(const Key key) const {
 }
 
 
-//#define PHASH_TIMER
+// TranspositionTable<PHEntry> overrides for TranspositionTable::to_phash() 
 
-/// TranspositionTable::to_phash()
+template<>
+void TranspositionTable<PHEntry>::to_phash() {
 
-void TranspositionTable::to_phash() {
-  
-#ifdef PHASH_TIMER
+#ifdef PHASH_DEBUG
   struct timeval tv1, tv2;
   unsigned entries = 0;
   unsigned count = 0;
-  
+
   gettimeofday(&tv1, NULL);
 #endif
+  int minDepth = Options["Persistent Hash Depth"];
+
   starttransaction_phash(PHASH_WRITE);
   for (unsigned i = 0; i < (hashMask + ClusterSize); i++) {
-    TTEntry *tte = table + i;
+    PHEntry *phe = table + i;
     Key key;
-    if ((key = tte->interesting())) {
-      store_phash(key, tte->value(), tte->type(), tte->depth(), tte->move(), tte->eval_value(), tte->eval_margin());
-#ifdef PHASH_TIMER
+    if ((key = phe->fullkey())) {
+      TTEntry *tte = TT.probe(key);
+      if (tte && tte->type() == BOUND_EXACT && tte->depth() >= minDepth) { // double-check criteria
+        store_phash(key, tte->value(), tte->type(), tte->depth(), tte->move(), tte->eval_value(), tte->eval_margin());
+      }
+#ifdef PHASH_DEBUG
       count++;
 #endif
     }
-#ifdef PHASH_TIMER
+#ifdef PHASH_DEBUG
     entries++;
 #endif
   }
   endtransaction_phash();
-#ifdef PHASH_TIMER
+  clear(); // clear the hash each time
+#ifdef PHASH_DEBUG
   gettimeofday(&tv2, NULL);
-  sync_cout << "\nTranspositionTable::iterate " << " entries in " << ((tv2.tv_sec * 1000.) + (tv2.tv_usec / 1000.) - (tv1.tv_sec * 1000.) + (tv1.tv_usec / 1000.)) << " milliseconds with " << count << " interesting positions.\n" << sync_endl;
+  sync_cout << "\nTranspositionTable<PHEntry>::to_phash stored "
+            << count << " entries (" << entries << " total) in "
+            << ((tv2.tv_sec * 1000.) + (tv2.tv_usec / 1000.) - (tv1.tv_sec * 1000.) + (tv1.tv_usec / 1000.))
+            << " milliseconds.\n" << sync_endl;
 #endif
 }
 
 
 /// TranspositionTable::from_phash()
 
-void TranspositionTable::from_phash() {
-  
-#ifdef PHASH_TIMER
+template<>
+void TranspositionTable<PHEntry>::from_phash() {
+
+#ifdef PHASH_DEBUG
   struct timeval tv1, tv2;
   unsigned count = 0;
-  
+
   gettimeofday(&tv1, NULL);
 #endif
   starttransaction_phash(PHASH_READ);
   to_tt_phash();
   endtransaction_phash();
-#ifdef PHASH_TIMER
+#ifdef PHASH_DEBUG
   gettimeofday(&tv2, NULL);
-  sync_cout << "\nTranspositionTable::iterate " << " entries in " << ((tv2.tv_sec * 1000.) + (tv2.tv_usec / 1000.) - (tv1.tv_sec * 1000.) + (tv1.tv_usec / 1000.)) << " milliseconds with " << count << " interesting positions.\n" << sync_endl;
+  sync_cout << "\nTranspositionTable<PHEntry>::from_phash executed in "
+            << ((tv2.tv_sec * 1000.) + (tv2.tv_usec / 1000.) - (tv1.tv_sec * 1000.) + (tv1.tv_usec / 1000.))
+            << " milliseconds.\n" << sync_endl;
 #endif
 }
+
+template class TranspositionTable<TTEntry>;
+template class TranspositionTable<PHEntry>;
