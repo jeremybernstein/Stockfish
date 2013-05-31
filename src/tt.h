@@ -172,4 +172,9 @@ inline void TranspositionTable<T>::refresh(const T* tte) const {
   const_cast<T*>(tte)->set_generation(generation);
 }
 
+template<>
+void TranspositionTable<PHEntry>::from_phash();
+template<>
+void TranspositionTable<PHEntry>::to_phash();
+
 #endif // !defined(TT_H_INCLUDED)
