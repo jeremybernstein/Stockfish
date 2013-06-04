@@ -371,7 +371,7 @@ void domerge_phash()
         t_phash_data data;
         int datasize = 0;
         
-        datasize = dpgetwb(PersHashFile, (const char *)key, (int)sizeof(Key), 0, (int)sizeof(t_phash_data), (char *)&data);
+        datasize = dpgetwb(mergefile, (const char *)key, (int)sizeof(Key), 0, (int)sizeof(t_phash_data), (char *)&data);
         if (datasize == sizeof(t_phash_data)) {
           if (data.d >= mindepth) {
             Depth depth;            
