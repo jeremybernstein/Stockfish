@@ -42,6 +42,7 @@ namespace
   DEPOT *PersHashFile = NULL;
   bool PersHashWantsClear = false;
   bool PersHashWantsPrune = false;
+  bool PersHashWantsMerge = false;
 }
 
 typedef struct _phash_data
@@ -65,6 +66,8 @@ void clear_phash();
 void doclear_phash();
 void prune_phash();
 void doprune_phash();
+void merge_phash();
+void domerge_phash();
 void optimize_phash();
 int getsize_phash();
 int prune_below_phash(int depth);
@@ -156,6 +159,23 @@ void wantsprune_phash()
   }
 }
 
+void merge_phash()
+{
+  starttransaction_phash(PHASH_WRITE);
+  domerge_phash();
+  endtransaction_phash();
+}
+
+void wantsmerge_phash()
+{
+  MainThread *t = Threads.main_thread();
+  if (t->thinking) {
+    PersHashWantsMerge = true;
+  } else {
+    merge_phash();
+  }
+}
+
 DEPOT *open_phash(PHASH_MODE mode)
 {
   bool usePersHash = Options["Use Persistent Hash"];
@@ -213,9 +233,15 @@ void starttransaction_phash(PHASH_MODE mode)
   if (PersHashWantsClear) {
     PersHashWantsClear = false;
     clear_phash();
-  } else if (PersHashWantsPrune) {
-    PersHashWantsPrune = false;
-    prune_phash();
+  } else {
+    if (PersHashWantsMerge) {
+      PersHashWantsMerge = false;
+      merge_phash();
+    }
+    if (PersHashWantsPrune) {
+      PersHashWantsPrune = false;
+      prune_phash();
+    }
   }
   PersHashFile = open_phash(mode);
 }
@@ -324,6 +350,45 @@ void doclear_phash()
 #ifdef PHASH_DEBUG
     printf("purged %d records\n", count);
 #endif
+  }
+}
+
+void domerge_phash()
+{
+  if (PersHashFile) {
+    std::string mergename = Options["Persistent Hash Merge File"];
+    int mindepth = Options["Persistent Hash Depth"];
+    DEPOT *mergefile;
+    
+    mergefile = dpopen(mergename.c_str(), DP_OREADER, 0);
+    if (mergefile) {
+      dpiterinit(mergefile);
+      char *key;
+      int merged = 0;
+      int count = 0;
+      
+      while ((key = dpiternext(mergefile, NULL))) {
+        t_phash_data data;
+        int datasize = 0;
+        
+        datasize = dpgetwb(PersHashFile, (const char *)key, (int)sizeof(Key), 0, (int)sizeof(t_phash_data), (char *)&data);
+        if (datasize == sizeof(t_phash_data)) {
+          if (data.d >= mindepth) {
+            Depth depth;            
+            probe_phash(*((const Key *)key), &depth);
+            if (data.d > depth) {
+              dpput(PersHashFile, (const char *)key, (int)sizeof(Key), (const char *)&data, (int)sizeof(t_phash_data), DP_DOVER);
+              merged++;
+            }
+          }
+        }
+        count++;
+        free(key);
+      }
+      dpclose(mergefile);
+      
+      sync_cout << "info string Persistent Hash merged " << merged << " records (from " << count << " total) from file " << mergename << "." << sync_endl;
+    }
   }
 }
 

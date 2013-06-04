@@ -34,5 +34,6 @@ void endtransaction_phash();
 void to_tt_phash();
 void wantsclear_phash();
 void wantsprune_phash();
+void wantsmerge_phash();
 
 #endif /* defined(ISAM_H_INCLUDED) */
